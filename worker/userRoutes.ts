@@ -4,14 +4,31 @@ import type { ApiResponse, LookupResponse, SourceResult } from '@shared/types';
 import * as cheerio from 'cheerio';
 /**
  * Normalizes text by removing redundant whitespace, newlines, and non-printable characters.
+ * Handles common scraping artifacts like double spaces, tabs, and &nbsp;
  */
 function cleanText(text: string): string {
     return text
+        .replace(/&nbsp;/g, ' ')
+        .replace(/\u00A0/g, ' ') // non-breaking space
+        .replace(/[\x00-\x1F\x7F-\x9F]/g, "") // non-printable control characters
         .replace(/\s+/g, ' ')
         .replace(/[\n\r\t]/g, ' ')
         .trim();
 }
+/**
+ * Filters out common noisy strings found in Argentine public records scrapers.
+ */
+function isGarbage(text: string): boolean {
+    const lower = text.toLowerCase();
+    const noise = [
+        'publicidad', 'anuncios', 'google', 'cookies', 'aceptar', 'consultar', 
+        'derechos reservados', 'política de privacidad', 'términos y condiciones',
+        'cargando', 'buscadatos', 'datuar', 'cuit online', 'buscar...', 'ingrese'
+    ];
+    return noise.some(n => lower.includes(n)) || text.length < 3;
+}
 async function fetchDatuar(dni: string): Promise<SourceResult> {
+    const sourceName = 'Registros Nacionales (Datuar)';
     try {
         const formData = new URLSearchParams();
         formData.append('dni', dni);
@@ -26,33 +43,37 @@ async function fetchDatuar(dni: string): Promise<SourceResult> {
             body: formData.toString(),
             signal: AbortSignal.timeout(8000),
         });
-        if (!response.ok) throw new Error('Datuar source unavailable');
+        if (!response.ok) throw new Error('Source status error');
         const html = await response.text();
         const $ = cheerio.load(html);
         const items: string[] = [];
+        // Targeted selector for Datuar results while avoiding nav/footer elements
         $('.f_gotham_book.text-dark.small').each((_, el) => {
-            const text = cleanText($(el).text());
-            if (text && text.length > 2 && !text.toLowerCase().includes('consultar')) {
+            const raw = $(el).text();
+            const text = cleanText(raw);
+            if (text && !isGarbage(text)) {
                 items.push(text);
             }
         });
+        const uniqueItems = [...new Set(items)].sort((a, b) => b.length - a.length);
         return {
-            sourceName: 'Registros Nacionales (Datuar)',
-            items: [...new Set(items)],
-            status: items.length > 0 ? 'success' : 'error',
-            message: items.length > 0 ? undefined : 'No se localizaron registros para este DNI en la base nacional.'
+            sourceName,
+            items: uniqueItems,
+            status: uniqueItems.length > 0 ? 'success' : 'error',
+            message: uniqueItems.length > 0 ? undefined : 'No se localizaron registros para este DNI en la base nacional.'
         };
     } catch (error) {
-        console.error('[Datuar Error]:', error);
+        const isTimeout = error instanceof Error && error.name === 'TimeoutError';
         return {
-            sourceName: 'Registros Nacionales (Datuar)',
+            sourceName,
             items: [],
             status: 'error',
-            message: 'Error temporal en la conexión con la base nacional.'
+            message: isTimeout ? 'La base nacional no respondió a tiempo (Timeout).' : 'Error de conexión con la base nacional.'
         };
     }
 }
 async function fetchBuscadatos(dni: string): Promise<SourceResult> {
+    const sourceName = 'Informes Alternativos (Buscadatos)';
     try {
         const url = `https://www.buscadatos.com.ar/buscar.php?dni=${dni}`;
         const response = await fetch(url, {
@@ -62,34 +83,38 @@ async function fetchBuscadatos(dni: string): Promise<SourceResult> {
             },
             signal: AbortSignal.timeout(8000),
         });
-        if (!response.ok) throw new Error('Buscadatos source unavailable');
+        if (!response.ok) throw new Error('Source status error');
         const html = await response.text();
         const $ = cheerio.load(html);
         const items: string[] = [];
-        $('table.table tr, .resultados-busqueda div').each((_, el) => {
-            const text = cleanText($(el).text());
-            const isNoisy = text.includes('Publicidad') || text.includes('Google') || text.includes('Cookies') || text.length < 5;
-            if (text && !isNoisy) {
-                items.push(text);
-            }
+        // Focus on tables and result containers specifically
+        $('table.table tr, .resultados-busqueda, .resultado').each((_, el) => {
+            $(el).find('td, div, span').each((__, inner) => {
+                const text = cleanText($(inner).text());
+                if (text && !isGarbage(text)) {
+                    items.push(text);
+                }
+            });
         });
+        const uniqueItems = [...new Set(items)].sort((a, b) => b.length - a.length).slice(0, 15);
         return {
-            sourceName: 'Informes Alternativos (Buscadatos)',
-            items: [...new Set(items)].slice(0, 12),
-            status: items.length > 0 ? 'success' : 'error',
-            message: items.length > 0 ? undefined : 'No se hallaron coincidencias en registros alternativos.'
+            sourceName,
+            items: uniqueItems,
+            status: uniqueItems.length > 0 ? 'success' : 'error',
+            message: uniqueItems.length > 0 ? undefined : 'No se hallaron coincidencias en registros alternativos.'
         };
     } catch (error) {
-        console.error('[Buscadatos Error]:', error);
+        const isTimeout = error instanceof Error && error.name === 'TimeoutError';
         return {
-            sourceName: 'Informes Alternativos (Buscadatos)',
+            sourceName,
             items: [],
             status: 'error',
-            message: 'La fuente externa no respondió a tiempo.'
+            message: isTimeout ? 'Fuente alternativa excedió tiempo de espera.' : 'Error temporal en registros alternativos.'
         };
     }
 }
 async function fetchCuitOnline(dni: string): Promise<SourceResult> {
+    const sourceName = 'Identificación Fiscal (CUIT Online)';
     try {
         const url = `https://www.cuitonline.com/search.php?q=${dni}`;
         const response = await fetch(url, {
@@ -99,36 +124,44 @@ async function fetchCuitOnline(dni: string): Promise<SourceResult> {
             },
             signal: AbortSignal.timeout(8000),
         });
-        if (!response.ok) throw new Error('CuitOnline source unavailable');
+        if (!response.ok) throw new Error('Source status error');
         const html = await response.text();
         const $ = cheerio.load(html);
         const items: string[] = [];
-        $('.result, .persona, .denominacion, .cuit').each((_, el) => {
+        // Refined extraction for CUIT Online structured data
+        $('.persona, .denominacion, .cuit, .info-row').each((_, el) => {
             const text = cleanText($(el).text());
-            if (text && text.length > 5 && !text.includes('Cookies')) {
+            if (text && !isGarbage(text)) {
                 items.push(text);
             }
         });
-        // Fallback for structured tables often found on CUIT Online
-        if (items.length === 0) {
-            $('table tr').each((_, el) => {
-                const text = cleanText($(el).text());
-                if (text && text.length > 5) items.push(text);
+        // Specific table handling for key-value pair extraction
+        if (items.length < 3) {
+            $('table.table-striped tr').each((_, el) => {
+                const $tds = $(el).find('td');
+                if ($tds.length >= 2) {
+                    const key = cleanText($($tds[0]).text());
+                    const val = cleanText($($tds[1]).text());
+                    if (val && !isGarbage(val) && !isGarbage(key)) {
+                        items.push(`${key}: ${val}`);
+                    }
+                }
             });
         }
+        const uniqueItems = [...new Set(items)].sort((a, b) => b.length - a.length).slice(0, 12);
         return {
-            sourceName: 'Identificación Fiscal (CUIT Online)',
-            items: [...new Set(items)].slice(0, 10),
-            status: items.length > 0 ? 'success' : 'error',
-            message: items.length > 0 ? undefined : 'No se encontraron registros fiscales vinculados.'
+            sourceName,
+            items: uniqueItems,
+            status: uniqueItems.length > 0 ? 'success' : 'error',
+            message: uniqueItems.length > 0 ? undefined : 'No se encontraron registros fiscales vinculados.'
         };
     } catch (error) {
-        console.error('[CuitOnline Error]:', error);
+        const isTimeout = error instanceof Error && error.name === 'TimeoutError';
         return {
-            sourceName: 'Identificación Fiscal (CUIT Online)',
+            sourceName,
             items: [],
             status: 'error',
-            message: 'Error en la conexión con la base fiscal.'
+            message: isTimeout ? 'Base fiscal fuera de línea (Timeout).' : 'Error en la conexión con la base fiscal.'
         };
     }
 }
@@ -140,31 +173,31 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
             if (!dni || typeof dni !== 'string' || !/^\d+$/.test(dni)) {
                 return c.json({
                     success: false,
-                    error: 'Por favor, ingrese un número de DNI válido.'
+                    error: 'Por favor, ingrese un número de DNI válido (solo dígitos).'
                 } satisfies ApiResponse, 400);
             }
-            const [datuarResult, buscaResult, cuitResult] = await Promise.all([
+            // Parallel fetching with structured error handling
+            const results = await Promise.all([
                 fetchDatuar(dni),
-                fetchBuscadatos(dni),
-                fetchCuitOnline(dni)
+                fetchCuitOnline(dni),
+                fetchBuscadatos(dni)
             ]);
-            const sources = [datuarResult, cuitResult, buscaResult];
-            const hasAnyData = sources.some(s => s.status === 'success');
+            const hasAnyData = results.some(r => r.status === 'success');
             if (!hasAnyData) {
                 return c.json({
                     success: false,
-                    error: 'Búsqueda finalizada sin resultados públicos encontrados.'
+                    error: 'La búsqueda finalizó sin resultados públicos para este documento.'
                 } satisfies ApiResponse, 404);
             }
             return c.json({
                 success: true,
-                data: { sources }
+                data: { sources: results }
             } satisfies ApiResponse<LookupResponse>);
         } catch (error) {
-            console.error('[Global Lookup Error]:', error);
+            console.error('[Lookup Error]:', error);
             return c.json({
                 success: false,
-                error: 'Error crítico en el motor de búsqueda.'
+                error: 'Error crítico en el motor de búsqueda simultánea.'
             } satisfies ApiResponse, 500);
         }
     });
