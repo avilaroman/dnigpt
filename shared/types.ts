@@ -7,6 +7,7 @@ export interface ApiResponse<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;
+  brand?: string;
 }
 export interface SourceResult {
   sourceName: string;
@@ -16,4 +17,5 @@ export interface SourceResult {
 }
 export interface LookupResponse {
   sources: SourceResult[];
+  engineVersion?: string;
 }
