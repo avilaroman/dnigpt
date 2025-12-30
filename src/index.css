@@ -11,52 +11,60 @@
     --card-foreground: 222 47% 11%;
     --border: 214 32% 91%;
     --ring: 221 83% 53%;
-    --radius: 0.75rem;
+    --radius: 1rem;
   }
   .dark {
-    --background: 222 47% 4%;
+    --background: 222 47% 3%;
     --foreground: 210 40% 98%;
     --primary: 217 91% 60%;
     --primary-foreground: 222 47% 11%;
-    --card: 222 47% 6%;
+    --card: 222 47% 5%;
     --card-foreground: 210 40% 98%;
-    --border: 217 32% 12%;
+    --border: 217 32% 10%;
   }
 }
 @layer utilities {
   .glass {
-    @apply bg-white/60 backdrop-blur-xl border border-white/20 shadow-xl;
+    @apply bg-white/70 backdrop-blur-2xl border border-white/20 shadow-2xl;
   }
   .dark .glass {
-    @apply bg-slate-900/60 backdrop-blur-xl border border-slate-800/50 shadow-2xl;
+    @apply bg-slate-900/40 backdrop-blur-2xl border border-white/5 shadow-2xl;
   }
   .shadow-glow-indigo {
-    box-shadow: 0 0 20px -5px rgba(99, 102, 241, 0.3), 0 0 40px -10px rgba(99, 102, 241, 0.2);
+    box-shadow: 0 0 30px -10px rgba(99, 102, 241, 0.4);
   }
-  .shadow-glow-blue {
-    box-shadow: 0 0 20px -5px rgba(59, 130, 246, 0.3), 0 0 40px -10px rgba(59, 130, 246, 0.2);
+  .bg-dots {
+    background-image: radial-gradient(circle at 1px 1px, #cbd5e1 1px, transparent 0);
+    background-size: 32px 32px;
+  }
+  .dark .bg-dots {
+    background-image: radial-gradient(circle at 1px 1px, #1e293b 1px, transparent 0);
+  }
+  .feed-row {
+    transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1), background-color 0.2s ease;
+  }
+  .feed-row:hover {
+    @apply bg-white/80 dark:bg-slate-900/60;
+    transform: translateX(4px);
   }
   .custom-scrollbar::-webkit-scrollbar {
-    width: 4px;
+    width: 3px;
   }
   .custom-scrollbar::-webkit-scrollbar-track {
     @apply bg-transparent;
   }
   .custom-scrollbar::-webkit-scrollbar-thumb {
-    @apply bg-slate-300 dark:bg-slate-700 rounded-full;
+    @apply bg-indigo-200 dark:bg-indigo-900/50 rounded-full;
   }
-  .bg-dots {
-    background-image: radial-gradient(#cbd5e1 0.5px, transparent 0.5px);
-    background-size: 24px 24px;
-  }
-  .dark .bg-dots {
-    background-image: radial-gradient(#1e293b 0.5px, transparent 0.5px);
-  }
+}
+* {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 @keyframes pulse-slow {
-  0%, 100% { opacity: 0.4; transform: scale(1); }
-  50% { opacity: 0.6; transform: scale(1.05); }
+  0%, 100% { opacity: 0.3; transform: scale(1) translate(-50%, -50%); }
+  50% { opacity: 0.5; transform: scale(1.1) translate(-50%, -50%); }
 }
 .animate-pulse-slow {
-  animation: pulse-slow 6s ease-in-out infinite;
+  animation: pulse-slow 8s ease-in-out infinite;
 }
