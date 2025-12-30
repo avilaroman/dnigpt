@@ -14,8 +14,12 @@ export interface SourceResult {
   items: string[];
   status: 'success' | 'error';
   message?: string;
+  category?: 'Personal' | 'Fiscal' | 'Judicial' | 'Otros';
+  metadata?: Record<string, string>;
 }
 export interface LookupResponse {
   sources: SourceResult[];
   engineVersion?: string;
+  searchId: string;
+  timestamp: string;
 }
