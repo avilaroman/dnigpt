@@ -1,6 +1,6 @@
 # Argent Search Minima
 
-[cloudflarebutton]
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/avilaroman/dnigpt)
 
 A modern full-stack application template powered by Cloudflare Workers. Features a React frontend with shadcn/ui components, Tailwind CSS, and a robust backend using Hono routing and Durable Objects for persistent state management.
 
@@ -123,7 +123,7 @@ Deploy to Cloudflare Workers with Pages integration:
    - Update `wrangler.jsonc` with your settings.
    - Run `wrangler deploy`.
 
-[cloudflarebutton]
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/avilaroman/dnigpt)
 
 **Note**: Durable Objects require migrations (pre-configured). Preview deployments auto-handle bindings.
 
