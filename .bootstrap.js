@@ -77,7 +77,9 @@ function updateWranglerJsonc() {
 }
 
 function runSetupCommands() {
-    const commands = [];
+    const commands = [
+    "bun add cheerio@^1.0.0-rc.12"
+];
     
     if (commands.length === 0) {
         console.log('⊘ No setup commands to run');
