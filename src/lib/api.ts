@@ -12,15 +12,16 @@ export async function lookupDni(dni: string): Promise<ApiResponse<LookupResponse
       const errorData = await response.json().catch(() => ({}));
       return {
         success: false,
-        error: errorData.error || `Error: ${response.status} ${response.statusText}`,
+        error: errorData.error || `Error HTTP: ${response.status}`,
       };
     }
-    return await response.json();
+    const json = await response.json();
+    return json as ApiResponse<LookupResponse>;
   } catch (err) {
-    console.error('Lookup API Error:', err);
+    console.error('Lookup API Client Error:', err);
     return {
       success: false,
-      error: err instanceof Error ? err.message : 'An unexpected error occurred',
+      error: err instanceof Error ? err.message : 'Error inesperado de red',
     };
   }
 }
