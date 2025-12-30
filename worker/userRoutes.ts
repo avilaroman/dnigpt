@@ -1,50 +1,63 @@
 import { Hono } from "hono";
 import { Env } from './core-utils';
-import type { DemoItem, ApiResponse } from '@shared/types';
-
+import type { ApiResponse, LookupResponse } from '@shared/types';
+import * as cheerio from 'cheerio';
 export function userRoutes(app: Hono<{ Bindings: Env }>) {
-    app.get('/api/test', (c) => c.json({ success: true, data: { name: 'CF Workers Demo' }}));
-
-    // Demo items endpoint using Durable Object storage
-    app.get('/api/demo', async (c) => {
-        const durableObjectStub = c.env.GlobalDurableObject.get(c.env.GlobalDurableObject.idFromName("global"));
-        const data = await durableObjectStub.getDemoItems();
-        return c.json({ success: true, data } satisfies ApiResponse<DemoItem[]>);
-    });
-
-    // Counter using Durable Object
-    app.get('/api/counter', async (c) => {
-        const durableObjectStub = c.env.GlobalDurableObject.get(c.env.GlobalDurableObject.idFromName("global"));
-        const data = await durableObjectStub.getCounterValue();
-        return c.json({ success: true, data } satisfies ApiResponse<number>);
-    });
-    
-    app.post('/api/counter/increment', async (c) => {
-        const durableObjectStub = c.env.GlobalDurableObject.get(c.env.GlobalDurableObject.idFromName("global"));
-        const data = await durableObjectStub.increment();
-        return c.json({ success: true, data } satisfies ApiResponse<number>);
-    });
-
-    // Demo item management endpoints
-    app.post('/api/demo', async (c) => {
-        const body = await c.req.json() as DemoItem;
-        const durableObjectStub = c.env.GlobalDurableObject.get(c.env.GlobalDurableObject.idFromName("global"));
-        const data = await durableObjectStub.addDemoItem(body);
-        return c.json({ success: true, data } satisfies ApiResponse<DemoItem[]>);
-    });
-
-    app.put('/api/demo/:id', async (c) => {
-        const id = c.req.param('id');
-        const body = await c.req.json() as Partial<Omit<DemoItem, 'id'>>;
-        const durableObjectStub = c.env.GlobalDurableObject.get(c.env.GlobalDurableObject.idFromName("global"));
-        const data = await durableObjectStub.updateDemoItem(id, body);
-        return c.json({ success: true, data } satisfies ApiResponse<DemoItem[]>);
-    });
-
-    app.delete('/api/demo/:id', async (c) => {
-        const id = c.req.param('id');
-        const durableObjectStub = c.env.GlobalDurableObject.get(c.env.GlobalDurableObject.idFromName("global"));
-        const data = await durableObjectStub.deleteDemoItem(id);
-        return c.json({ success: true, data } satisfies ApiResponse<DemoItem[]>);
+    app.post('/api/lookup', async (c) => {
+        try {
+            const body = await c.req.json().catch(() => ({}));
+            const dni = body.dni;
+            if (!dni || typeof dni !== 'string' || !/^\d+$/.test(dni)) {
+                return c.json({ 
+                    success: false, 
+                    error: 'Un número de DNI válido es requerido.' 
+                } satisfies ApiResponse, 400);
+            }
+            // Datuar expects form-urlencoded: dni and criterio (both usually the same)
+            const formData = new URLSearchParams();
+            formData.append('dni', dni);
+            formData.append('criterio', dni);
+            const externalResponse = await fetch('https://datuar.com/pedido.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Referer': 'https://datuar.com/',
+                },
+                body: formData.toString(),
+            });
+            if (!externalResponse.ok) {
+                return c.json({ 
+                    success: false, 
+                    error: 'Error al conectar con el servicio externo.' 
+                } satisfies ApiResponse, 502);
+            }
+            const html = await externalResponse.text();
+            const $ = cheerio.load(html);
+            // The specific target class based on project requirements
+            const results: string[] = [];
+            $('.f_gotham_book.text-dark.small').each((_, el) => {
+                const text = $(el).text().trim();
+                if (text) {
+                    results.push(text);
+                }
+            });
+            if (results.length === 0) {
+                return c.json({ 
+                    success: false, 
+                    error: 'No se encontraron resultados para el DNI ingresado.' 
+                } satisfies ApiResponse, 404);
+            }
+            return c.json({ 
+                success: true, 
+                data: { results } 
+            } satisfies ApiResponse<LookupResponse>);
+        } catch (error) {
+            console.error('Worker Lookup Error:', error);
+            return c.json({ 
+                success: false, 
+                error: 'Error interno al procesar la solicitud.' 
+            } satisfies ApiResponse, 500);
+        }
     });
 }
