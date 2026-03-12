@@ -68,18 +68,72 @@ async function fetchDatuar(dni: string): Promise<SourceResult> {
 async function fetchCuitOnline(dni: string): Promise<SourceResult> {
     const sourceName = 'Administración Federal (AFIP)';
     try {
-        const url = `https://www.cuitonline.com/search.php?q=${dni}`;
+        const url = `https://www.cuitonline.com/search/${dni}`;
         const response = await fetch(url, {
-            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                'Accept-Language': 'es-AR,es;q=0.9,en;q=0.8',
+                'Referer': 'https://www.google.com/',
+                'Upgrade-Insecure-Requests': '1'
+            },
+            cf: {
+                cacheTtl: 1800,
+                cacheEverything: true,
+            },
             signal: AbortSignal.timeout(8000),
         });
+
+        if (!response.ok) throw new Error(`Source status ${response.status}`);
+
         const html = await response.text();
-        const $ = cheerio.load(html);
+
+        const pageTitleMatch = html.match(/<title>(.*?)<\/title>/i);
+        const pageTitle = cleanText(pageTitleMatch?.[1] ?? '');
+        const possibleBotBlock = /attention required|just a moment|cloudflare/i.test(pageTitle) ||
+            /cf-browser-verification|challenge-platform/i.test(html);
+
+        if (possibleBotBlock) {
+            return {
+                sourceName,
+                category: 'Fiscal',
+                items: [],
+                status: 'error',
+                message: 'Bloqueo anti-bot detectado en origen fiscal (no es un error de CORS).'
+            };
+        }
+
         const items: string[] = [];
-        $('.persona, .denominacion, .cuit, .info-row').each((_, el) => {
-            const text = cleanText($(el).text());
-            if (text && !isGarbage(text)) items.push(text);
-        });
+
+        const resultRegex = /<a[^>]*class="[^"]*list-group-item[^"]*"[^>]*>([\s\S]*?)<\/a>/gi;
+        let match: RegExpExecArray | null;
+        while ((match = resultRegex.exec(html)) !== null) {
+            const block = match[1];
+            const cuitRegex = new RegExp(`(20|23|24|27|30|33)[-]?${dni}[-]?[0-9]`);
+            const cuitMatch = block.match(cuitRegex);
+
+            if (!cuitMatch) continue;
+
+            const normalizedCuit = cuitMatch[0].replace(/-/g, '');
+            items.push(`CUIT: ${normalizedCuit}`);
+
+            const nameMatch = block.match(/<h3[^>]*>(.*?)<\/h3>/i);
+            if (nameMatch?.[1]) {
+                const name = cleanText(nameMatch[1].replace(/<[^>]+>/g, ''));
+                if (name) items.push(`Nombre: ${name}`);
+            }
+
+            break;
+        }
+
+        if (items.length === 0) {
+            const $ = cheerio.load(html);
+            $('.persona, .denominacion, .cuit, .info-row').each((_, el) => {
+                const text = cleanText($(el).text());
+                if (text && !isGarbage(text)) items.push(text);
+            });
+        }
+
         const uniqueItems = [...new Set(items)];
         return {
             sourceName,
